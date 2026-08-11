@@ -7,9 +7,10 @@ import type { Point } from "../shared/geometry";
 import { PROFILES, type ProfileId } from "../shared/profile";
 import { detectFinders } from "./detect";
 
-const PROCESS_MAX = 720;
-/** Keep using last corners this many misses before dropping lock. */
-const LOCK_HOLD = 20;
+/** Decode at most this often. Full sample every camera frame freezes Mobile Safari. */
+const DECODE_HZ = 10;
+const PROCESS_MAX = 480;
+const LOCK_HOLD = 8;
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 
@@ -49,6 +50,7 @@ const barFill = document.querySelector<HTMLDivElement>("#barFill")!;
 const download = document.querySelector<HTMLAnchorElement>("#download")!;
 const profileSel = document.querySelector<HTMLSelectElement>("#profile")!;
 const work = document.createElement("canvas");
+const wctx = work.getContext("2d", { willReadFrequently: true, alpha: false })!;
 
 type Corners = [Point, Point, Point, Point];
 
@@ -57,8 +59,6 @@ let metaName = "file.bin";
 let streamId: number | null = null;
 let running = false;
 let busy = false;
-let framesOk = 0;
-let framesSeen = 0;
 let packetsOk = 0;
 let t0 = 0;
 let bytesIngested = 0;
@@ -66,6 +66,8 @@ let lastCorners: Corners | null = null;
 let missStreak = 0;
 let uiMode: "idle" | "search" | "lock" | "recv" | "done" = "idle";
 let lastMeta = "";
+let timer: number | null = null;
+let overlaySized = false;
 
 document.querySelector("#start")!.addEventListener("click", () => {
   void startCamera();
@@ -73,10 +75,8 @@ document.querySelector("#start")!.addEventListener("click", () => {
 
 function setProgress(pct: number, label: string, meta: string, mode: typeof uiMode): void {
   barFill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
-  if (mode !== uiMode) {
+  if (mode !== uiMode || hudLabel.textContent !== label) {
     uiMode = mode;
-    hudLabel.textContent = label;
-  } else if (hudLabel.textContent !== label && (mode === "recv" || mode === "done")) {
     hudLabel.textContent = label;
   }
   if (meta !== lastMeta) {
@@ -86,35 +86,23 @@ function setProgress(pct: number, label: string, meta: string, mode: typeof uiMo
 }
 
 async function startCamera(): Promise<void> {
+  // Keep the preview light on iPhone: 720p / 30 fps is enough for mono modules.
   const stream = await navigator.mediaDevices
     .getUserMedia({
       audio: false,
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-        frameRate: { ideal: 60 },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 30 },
       },
     })
     .catch(async () =>
       navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: { facingMode: { ideal: "environment" }, frameRate: { ideal: 60 } },
+        video: { facingMode: { ideal: "environment" } },
       }),
     );
-
-  const track = stream.getVideoTracks()[0];
-  if (track) {
-    try {
-      await track.applyConstraints({ frameRate: { ideal: 120 } });
-    } catch {
-      try {
-        await track.applyConstraints({ frameRate: { ideal: 60 } });
-      } catch {
-        /* keep */
-      }
-    }
-  }
 
   video.setAttribute("playsinline", "true");
   video.setAttribute("webkit-playsinline", "true");
@@ -124,29 +112,23 @@ async function startCamera(): Promise<void> {
   t0 = performance.now();
   lastCorners = null;
   missStreak = 0;
+  overlaySized = false;
   setProgress(4, "Recherche du cadre", "Les 4 coins colorés doivent être visibles", "search");
 
+  const track = stream.getVideoTracks()[0];
   const settings = track?.getSettings();
-  const camFps = settings?.frameRate ? Math.round(settings.frameRate) : "?";
-  statusEl.textContent = `${camFps} fps`;
+  statusEl.textContent = settings?.frameRate ? `${Math.round(settings.frameRate)} fps` : "";
 
-  const onFrame = () => {
-    if (!running) return;
-    if (!busy) void processFrame();
-    if ("requestVideoFrameCallback" in video) {
-      (video as HTMLVideoElement & { requestVideoFrameCallback: (cb: () => void) => void }).requestVideoFrameCallback(onFrame);
-    } else {
-      requestAnimationFrame(onFrame);
-    }
-  };
-  onFrame();
+  if (timer != null) window.clearInterval(timer);
+  timer = window.setInterval(() => {
+    if (!running || busy) return;
+    void tick();
+  }, 1000 / DECODE_HZ);
 }
 
-async function processFrame(): Promise<void> {
-  const profileId = profileSel.value as ProfileId;
-  const profile = PROFILES[profileId];
+async function tick(): Promise<void> {
+  const profile = PROFILES[profileSel.value as ProfileId];
   if (video.readyState < 2) return;
-
   const vw = video.videoWidth;
   const vh = video.videoHeight;
   if (!vw || !vh) return;
@@ -156,15 +138,18 @@ async function processFrame(): Promise<void> {
     const scale = Math.min(1, PROCESS_MAX / Math.max(vw, vh));
     const w = Math.max(2, Math.round(vw * scale));
     const h = Math.max(2, Math.round(vh * scale));
-    work.width = w;
-    work.height = h;
-    const wctx = work.getContext("2d", { willReadFrequently: true })!;
+    if (work.width !== w || work.height !== h) {
+      work.width = w;
+      work.height = h;
+    }
     wctx.drawImage(video, 0, 0, w, h);
     const image = wctx.getImageData(0, 0, w, h);
-    framesSeen++;
 
-    overlay.width = w;
-    overlay.height = h;
+    if (!overlaySized || overlay.width !== w || overlay.height !== h) {
+      overlay.width = w;
+      overlay.height = h;
+      overlaySized = true;
+    }
     const ctx = overlay.getContext("2d")!;
     ctx.clearRect(0, 0, w, h);
 
@@ -216,9 +201,7 @@ async function processFrame(): Promise<void> {
       setProgress(
         headerOk ? 20 : 12,
         "Cadre verrouillé",
-        headerOk
-          ? `En-tête ok · paquets ${okBands}/${bandCount}`
-          : `Image floue ou mal cadré · paquets ${okBands}/${bandCount}`,
+        headerOk ? `En-tête ok · ${okBands}/${bandCount}` : `Pas encore de données · ${okBands}/${bandCount}`,
         "lock",
       );
       return;
@@ -231,24 +214,18 @@ async function processFrame(): Promise<void> {
       packetsOk++;
       if (decoder.solvedCount > before) bytesIngested = decoder.solvedCount * decoder.blockSize;
     }
-    if (packets.length > 0) framesOk++;
 
     const pct = (decoder.solvedCount / decoder.k) * 100;
     const elapsed = (performance.now() - t0) / 1000;
     const mbps = elapsed > 0 ? (bytesIngested * 8) / elapsed / 1e6 : 0;
 
     if (pct > 0) {
-      setProgress(
-        pct,
-        `Réception ${pct.toFixed(0)}%`,
-        `${mbps.toFixed(2)} Mbit/s · ${packetsOk} paquets`,
-        "recv",
-      );
+      setProgress(pct, `Réception ${pct.toFixed(0)}%`, `${mbps.toFixed(2)} Mbit/s · ${packetsOk} paquets`, "recv");
     } else {
       setProgress(
         18,
         "Cadre verrouillé",
-        okBands > 0 ? `Données en cours · ${okBands}/${bandCount}` : `Toujours 0 paquet valide · tiens plus stable`,
+        okBands > 0 ? `Données en cours · ${okBands}/${bandCount}` : `0 paquet valide · reste stable`,
         "lock",
       );
     }
@@ -267,6 +244,10 @@ async function finish(): Promise<void> {
     return;
   }
   running = false;
+  if (timer != null) {
+    window.clearInterval(timer);
+    timer = null;
+  }
   let bytes = assembled;
   let name = metaName;
   if (name.endsWith(".gz")) {

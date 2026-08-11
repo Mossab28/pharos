@@ -190,22 +190,14 @@ export function sampleBands(
           cells[idx++] = 0;
           continue;
         }
-        let r = 0, g = 0, b = 0, n = 0;
-        for (let dy = -2; dy <= 2; dy++) {
-          for (let dx = -2; dx <= 2; dx++) {
-            const wgt = dx === 0 && dy === 0 ? 4 : 1;
-            const o = ((y + dy) * width + (x + dx)) * 4;
-            r += data[o]! * wgt;
-            g += data[o + 1]! * wgt;
-            b += data[o + 2]! * wgt;
-            n += wgt;
-          }
-        }
+        const o = (y * width + x) * 4;
+        const r = data[o]!;
+        const g = data[o + 1]!;
+        const b = data[o + 2]!;
         if (profile.mono) {
-          const lum = (0.299 * r + 0.587 * g + 0.114 * b) / n;
-          cells[idx++] = lum >= 128 ? 1 : 0;
+          cells[idx++] = 0.299 * r + 0.587 * g + 0.114 * b >= 128 ? 1 : 0;
         } else {
-          cells[idx++] = sampleToCell(r / n, g / n, b / n, profile.channelBits);
+          cells[idx++] = sampleToCell(r, g, b, profile.channelBits);
         }
       }
     }
