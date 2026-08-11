@@ -6,10 +6,9 @@ export type Profile = {
   grid: number;
   /** Bits per RGB channel. Total bits/cell = 3 × channelBits. */
   channelBits: 2 | 3 | 4;
-  /** Hint only; sender paces on vsync. */
+  /** Real send rate. Must stay under typical phone camera fps. */
   fps: number;
   blockSize: number;
-  /** Horizontal bands = independent CRC'd packets. */
   packetsPerFrame: number;
   finder: number;
   quiet: number;
@@ -23,31 +22,31 @@ export function bitsPerCell(p: Profile): number {
 }
 
 /**
- * Same 560px square, past the old 6-bit palette ceiling.
- * fast: 280² × 12 bits (RGB 4+4+4) ≈ 118 KB / frame, 10 bands, vsync.
+ * Profiles tuned so a phone camera (~24–30 fps) can actually lock.
+ * Same 560px square. Density was the bug, not the footprint.
  */
 export const PROFILES: Record<ProfileId, Profile> = {
   fast: {
     id: "fast",
     label: "Fast",
-    grid: 280,
-    channelBits: 4,
-    fps: 120,
+    grid: 96,
+    channelBits: 2,
+    fps: 15,
     blockSize: 0,
-    packetsPerFrame: 10,
-    finder: 4,
-    quiet: 1,
+    packetsPerFrame: 4,
+    finder: 7,
+    quiet: 2,
   },
   robust: {
     id: "robust",
     label: "Robust",
-    grid: 140,
+    grid: 72,
     channelBits: 2,
-    fps: 30,
+    fps: 10,
     blockSize: 0,
     packetsPerFrame: 2,
     finder: 7,
-    quiet: 2,
+    quiet: 3,
   },
 };
 
@@ -89,7 +88,7 @@ export function resolveLayout(p: Profile, headerLen: number): {
   const bandMin = minBandByteCapacity(p, bandCount);
   const from0 = band0 - headerLen - 10;
   const fromOther = bandMin - 10;
-  const blockSize = Math.max(128, Math.min(from0, fromOther));
+  const blockSize = Math.max(64, Math.min(from0, fromOther));
   return { bandCount, blockSize, useful: blockSize * bandCount };
 }
 

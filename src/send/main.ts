@@ -88,16 +88,14 @@ async function startSend(file: File, profileId: ProfileId): Promise<() => void> 
     nameBytes,
   };
 
-  const mbps120 = ((useful * 8 * 120) / 1e6).toFixed(0);
-  const mbps60 = ((useful * 8 * 60) / 1e6).toFixed(0);
-  statusEl.textContent = `${name} · ${useful} o/frame · ${bandCount} bandes · ~${mbps60}/${mbps120} Mbit/s @60/120Hz`;
+  const mbps = ((useful * 8 * profile.fps) / 1e6).toFixed(2);
+  statusEl.textContent = `${name} · ${useful} o/frame · ${profile.fps} fps · ~${mbps} Mbit/s`;
 
   let esi = 0;
   let frameSeq = 0;
   let alive = true;
-  // Render sharper than CSS size so cells survive downscale + camera.
-  const dpr = Math.min(3, window.devicePixelRatio || 1);
-  const ppc = Math.max(2, Math.round((DISPLAY_CSS_PX * dpr) / outerSize(profile)));
+  // Large cells: phone cameras need fat modules, not microscopic RGB.
+  const ppc = Math.max(4, Math.round(DISPLAY_CSS_PX / outerSize(profile)));
   canvas.style.width = `${DISPLAY_CSS_PX}px`;
   canvas.style.height = `${DISPLAY_CSS_PX}px`;
 
@@ -113,13 +111,19 @@ async function startSend(file: File, profileId: ProfileId): Promise<() => void> 
     frameSeq++;
   };
 
-  // One optical frame per display refresh (60/120 Hz).
+  // Cap to profile.fps so a 24–30 fps camera can freeze clean frames.
+  const interval = 1000 / profile.fps;
+  let last = 0;
   let raf = 0;
-  const loop = () => {
+  const loop = (now: number) => {
     if (!alive) return;
-    tick();
+    if (now - last >= interval) {
+      last = now;
+      tick();
+    }
     raf = requestAnimationFrame(loop);
   };
+  tick();
   raf = requestAnimationFrame(loop);
 
   return () => {
