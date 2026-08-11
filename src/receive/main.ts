@@ -3,10 +3,13 @@ import { unpackBands } from "../shared/band";
 import { gzipDecompress } from "../shared/compress";
 import { FountainDecoder } from "../shared/fountain";
 import { sampleBands } from "../shared/frame";
+import type { Point } from "../shared/geometry";
 import { PROFILES, type ProfileId } from "../shared/profile";
 import { detectFinders } from "./detect";
 
 const PROCESS_MAX = 720;
+/** Keep using last corners this many misses before dropping lock. */
+const LOCK_HOLD = 20;
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 
@@ -21,19 +24,19 @@ app.innerHTML = `
           <option value="robust">Robust</option>
         </select>
       </label>
-      <button id="start" type="button">Démarrer la caméra</button>
-      <span id="status" class="status">Même profil que l'envoi</span>
+      <button id="start" type="button">Caméra</button>
+      <span id="status" class="status"></span>
     </header>
     <div class="stage receive-stage">
-      <video id="video" playsinline muted autoplay></video>
+      <video id="video" playsinline webkit-playsinline muted autoplay></video>
       <canvas id="overlay"></canvas>
       <div class="hud">
         <div class="hud-label" id="hudLabel">Caméra arrêtée</div>
         <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
-        <div class="hud-meta" id="hudMeta">Lance la caméra, vise le carré</div>
+        <div class="hud-meta" id="hudMeta">Appuie sur Caméra, puis vise le carré</div>
       </div>
+      <a id="download" class="download" hidden></a>
     </div>
-    <a id="download" class="download" hidden></a>
   </main>
 `;
 
@@ -47,6 +50,8 @@ const download = document.querySelector<HTMLAnchorElement>("#download")!;
 const profileSel = document.querySelector<HTMLSelectElement>("#profile")!;
 const work = document.createElement("canvas");
 
+type Corners = [Point, Point, Point, Point];
+
 let decoder: FountainDecoder | null = null;
 let metaName = "file.bin";
 let streamId: number | null = null;
@@ -55,64 +60,75 @@ let busy = false;
 let framesOk = 0;
 let framesSeen = 0;
 let packetsOk = 0;
-let lockedFrames = 0;
 let t0 = 0;
 let bytesIngested = 0;
-let lastUi = 0;
+let lastCorners: Corners | null = null;
+let missStreak = 0;
+let uiMode: "idle" | "search" | "lock" | "recv" | "done" = "idle";
+let lastMeta = "";
 
 document.querySelector("#start")!.addEventListener("click", () => {
   void startCamera();
 });
 
-function setProgress(pct: number, label: string, meta: string): void {
+function setProgress(pct: number, label: string, meta: string, mode: typeof uiMode): void {
   barFill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
-  hudLabel.textContent = label;
-  hudMeta.textContent = meta;
+  if (mode !== uiMode) {
+    uiMode = mode;
+    hudLabel.textContent = label;
+  } else if (hudLabel.textContent !== label && (mode === "recv" || mode === "done")) {
+    hudLabel.textContent = label;
+  }
+  if (meta !== lastMeta) {
+    lastMeta = meta;
+    hudMeta.textContent = meta;
+  }
 }
 
 async function startCamera(): Promise<void> {
-  // Prefer 60 fps (120 when the device exposes it). Never cap at 30.
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: {
-      facingMode: { ideal: "environment" },
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
-      frameRate: { ideal: 60, min: 30 },
-    },
-  }).catch(async () =>
-    navigator.mediaDevices.getUserMedia({
+  const stream = await navigator.mediaDevices
+    .getUserMedia({
       audio: false,
       video: {
         facingMode: { ideal: "environment" },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
         frameRate: { ideal: 60 },
       },
-    }),
-  );
+    })
+    .catch(async () =>
+      navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: "environment" }, frameRate: { ideal: 60 } },
+      }),
+    );
 
-  // Try bumping to 120 if the track allows it.
   const track = stream.getVideoTracks()[0];
   if (track) {
     try {
-      await track.applyConstraints({ frameRate: { ideal: 120, min: 60 } });
+      await track.applyConstraints({ frameRate: { ideal: 120 } });
     } catch {
       try {
         await track.applyConstraints({ frameRate: { ideal: 60 } });
       } catch {
-        /* keep whatever we got */
+        /* keep */
       }
     }
   }
 
+  video.setAttribute("playsinline", "true");
+  video.setAttribute("webkit-playsinline", "true");
   video.srcObject = stream;
   await video.play();
   running = true;
   t0 = performance.now();
-  setProgress(0, "Recherche du cadre", "Vise le carré jusqu'à le verrouiller");
+  lastCorners = null;
+  missStreak = 0;
+  setProgress(4, "Recherche du cadre", "Vise le carré sur l'écran", "search");
 
   const settings = track?.getSettings();
   const camFps = settings?.frameRate ? Math.round(settings.frameRate) : "?";
-  statusEl.textContent = `Caméra ${camFps} fps · pointe le carré`;
+  statusEl.textContent = `${camFps} fps`;
 
   const onFrame = () => {
     if (!running) return;
@@ -152,27 +168,29 @@ async function processFrame(): Promise<void> {
     const ctx = overlay.getContext("2d")!;
     ctx.clearRect(0, 0, w, h);
 
-    const corners = detectFinders(image);
-    const now = performance.now();
-
-    if (!corners) {
-      lockedFrames = 0;
-      if (now - lastUi > 80) {
-        lastUi = now;
-        const pulse = 8 + (framesSeen % 20);
-        setProgress(
-          pulse,
-          "Recherche du cadre",
-          decoder
-            ? `${((decoder.solvedCount / decoder.k) * 100).toFixed(0)}% déjà reçu · recadre`
-            : `${framesSeen} frames · rapproche-toi du carré`,
-        );
-      }
+    const found = detectFinders(image);
+    let corners: Corners | null = null;
+    if (found) {
+      lastCorners = found;
+      missStreak = 0;
+      corners = found;
+    } else if (lastCorners && missStreak < LOCK_HOLD) {
+      missStreak++;
+      corners = lastCorners;
+    } else {
+      lastCorners = null;
+      missStreak = 0;
+      const pct = decoder ? (decoder.solvedCount / decoder.k) * 100 : 6;
+      setProgress(
+        pct > 0 ? pct : 6,
+        decoder ? `En pause ${pct.toFixed(0)}%` : "Recherche du cadre",
+        decoder ? "Remets le carré dans le viseur" : "Cadre pas encore trouvé",
+        decoder ? "recv" : "search",
+      );
       return;
     }
 
-    lockedFrames++;
-    ctx.strokeStyle = "#6ee7ff";
+    ctx.strokeStyle = missStreak > 0 ? "rgba(110,231,255,0.45)" : "#6ee7ff";
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(corners[0].x, corners[0].y);
@@ -195,17 +213,15 @@ async function processFrame(): Promise<void> {
     }
 
     if (!decoder) {
-      setProgress(18, "Cadre verrouillé", packets.length ? "En-tête en cours…" : "Cadre vu, en attente de données");
+      setProgress(14, "Cadre verrouillé", "Lecture de l'en-tête…", "lock");
       return;
     }
 
-    let newPackets = 0;
     for (const pkt of packets) {
       if (decoder.uniqueEsi.has(pkt.esi)) continue;
       const before = decoder.solvedCount;
       decoder.ingest(pkt.esi, pkt.data);
       packetsOk++;
-      newPackets++;
       if (decoder.solvedCount > before) bytesIngested = decoder.solvedCount * decoder.blockSize;
     }
     if (packets.length > 0) framesOk++;
@@ -213,13 +229,17 @@ async function processFrame(): Promise<void> {
     const pct = (decoder.solvedCount / decoder.k) * 100;
     const elapsed = (performance.now() - t0) / 1000;
     const mbps = elapsed > 0 ? (bytesIngested * 8) / elapsed / 1e6 : 0;
-    setProgress(
-      Math.max(pct, packets.length ? 12 : 20),
-      pct > 0 ? `Réception ${pct.toFixed(0)}%` : "Cadre verrouillé",
-      pct > 0
-        ? `${mbps.toFixed(2)} Mbit/s · ${packetsOk} paquets · ${newPackets ? "flux ok" : "en attente"}`
-        : `Cadre ok · ${packets.length} bande(s) lue(s) · garde le cadre plein écran`,
-    );
+
+    if (pct > 0) {
+      setProgress(
+        pct,
+        `Réception ${pct.toFixed(0)}%`,
+        `${mbps.toFixed(2)} Mbit/s · ${packetsOk} paquets`,
+        "recv",
+      );
+    } else {
+      setProgress(16, "Cadre verrouillé", "En attente des premières données…", "lock");
+    }
 
     if (decoder.done) await finish();
   } finally {
@@ -231,7 +251,7 @@ async function finish(): Promise<void> {
   if (!decoder) return;
   const assembled = decoder.assemble();
   if (!assembled) {
-    setProgress(95, "Presque…", "CRC invalide, on continue");
+    setProgress(96, "Presque…", "Vérification, on continue", "recv");
     return;
   }
   running = false;
@@ -246,8 +266,8 @@ async function finish(): Promise<void> {
   download.download = name;
   download.hidden = false;
   download.textContent = `Télécharger ${name}`;
-  statusEl.textContent = "Fichier prêt";
+  statusEl.textContent = "Prêt";
   const elapsed = (performance.now() - t0) / 1000;
   const mbps = (assembled.length * 8) / elapsed / 1e6;
-  setProgress(100, "Terminé", `${elapsed.toFixed(1)}s · ${mbps.toFixed(2)} Mbit/s`);
+  setProgress(100, "Terminé", `${elapsed.toFixed(1)}s · ${mbps.toFixed(2)} Mbit/s`, "done");
 }
