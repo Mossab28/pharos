@@ -124,7 +124,7 @@ async function startCamera(): Promise<void> {
   t0 = performance.now();
   lastCorners = null;
   missStreak = 0;
-  setProgress(4, "Recherche du cadre", "Vise le carré sur l'écran", "search");
+  setProgress(4, "Recherche du cadre", "Les 4 coins colorés doivent être visibles", "search");
 
   const settings = track?.getSettings();
   const camFps = settings?.frameRate ? Math.round(settings.frameRate) : "?";
@@ -184,7 +184,7 @@ async function processFrame(): Promise<void> {
       setProgress(
         pct > 0 ? pct : 6,
         decoder ? `En pause ${pct.toFixed(0)}%` : "Recherche du cadre",
-        decoder ? "Remets le carré dans le viseur" : "Cadre pas encore trouvé",
+        decoder ? "Remets le carré dans le viseur" : "Cherche rouge / vert / bleu / jaune",
         decoder ? "recv" : "search",
       );
       return;

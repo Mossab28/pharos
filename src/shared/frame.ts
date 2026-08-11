@@ -65,10 +65,21 @@ function fillRect(
   }
 }
 
-function drawFinder(data: Uint8ClampedArray, width: number, x0: number, y0: number, size: number, cell: number): void {
+/** Solid color finder with black ring + white gap (camera-friendly). */
+function drawColorFinder(
+  data: Uint8ClampedArray,
+  width: number,
+  x0: number,
+  y0: number,
+  size: number,
+  cell: number,
+  r: number,
+  g: number,
+  b: number,
+): void {
   fillRect(data, width, x0, y0, size, size, 0, 0, 0);
   fillRect(data, width, x0 + cell, y0 + cell, size - 2 * cell, size - 2 * cell, 255, 255, 255);
-  fillRect(data, width, x0 + 2 * cell, y0 + 2 * cell, size - 4 * cell, size - 4 * cell, 0, 0, 0);
+  fillRect(data, width, x0 + 2 * cell, y0 + 2 * cell, size - 4 * cell, size - 4 * cell, r, g, b);
 }
 
 export function renderBands(
@@ -85,13 +96,23 @@ export function renderBands(
   const ctx = canvas.getContext("2d", { alpha: false })!;
   ctx.imageSmoothingEnabled = false;
   const img = ctx.createImageData(px, px);
-  img.data.fill(255);
+  // Light grey surround so the white code plate pops on any desktop wallpaper.
+  img.data.fill(230);
 
   const fs = profile.finder * pixelPerCell;
-  drawFinder(img.data, px, 0, 0, fs, pixelPerCell);
-  drawFinder(img.data, px, px - fs, 0, fs, pixelPerCell);
-  drawFinder(img.data, px, 0, px - fs, fs, pixelPerCell);
-  drawFinder(img.data, px, px - fs, px - fs, fs, pixelPerCell);
+  // White plate
+  fillRect(img.data, px, 0, 0, px, px, 255, 255, 255);
+  // Thick black outer frame
+  fillRect(img.data, px, 0, 0, px, pixelPerCell, 0, 0, 0);
+  fillRect(img.data, px, 0, px - pixelPerCell, px, pixelPerCell, 0, 0, 0);
+  fillRect(img.data, px, 0, 0, pixelPerCell, px, 0, 0, 0);
+  fillRect(img.data, px, px - pixelPerCell, 0, pixelPerCell, px, 0, 0, 0);
+
+  // TL red, TR green, BR blue, BL yellow
+  drawColorFinder(img.data, px, 0, 0, fs, pixelPerCell, 255, 0, 0);
+  drawColorFinder(img.data, px, px - fs, 0, fs, pixelPerCell, 0, 255, 0);
+  drawColorFinder(img.data, px, px - fs, px - fs, fs, pixelPerCell, 0, 0, 255);
+  drawColorFinder(img.data, px, 0, px - fs, fs, pixelPerCell, 255, 255, 0);
 
   const parity = frameSeq & 1;
   for (let i = profile.finder; i < outer - profile.finder; i++) {
