@@ -1,0 +1,195 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0d10;
+  --fg: #e8eaed;
+  --muted: #9aa3af;
+  --accent: #6ee7ff;
+  --panel: #141820;
+  --line: #243041;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  background: radial-gradient(1200px 600px at 20% -10%, #1a2740, transparent), var(--bg);
+  color: var(--fg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.home {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  gap: 1rem;
+  padding: 2rem;
+  text-align: center;
+}
+
+.home h1 {
+  font-size: clamp(3rem, 10vw, 5.5rem);
+  letter-spacing: -0.04em;
+  margin: 0;
+}
+
+.home p {
+  margin: 0 auto;
+  max-width: 34rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.home .target {
+  color: var(--fg);
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 9rem;
+  padding: 0.85rem 1.25rem;
+  border-radius: 0.75rem;
+  background: var(--accent);
+  color: #041018;
+  font-weight: 650;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--line);
+}
+
+.page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+}
+
+.bar a {
+  font-weight: 700;
+  margin-right: 0.5rem;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.field select,
+.bar button {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--fg);
+  border-radius: 0.55rem;
+  padding: 0.55rem 0.8rem;
+  font: inherit;
+}
+
+.bar button {
+  cursor: pointer;
+  background: var(--accent);
+  color: #041018;
+  border-color: transparent;
+  font-weight: 650;
+}
+
+.status {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.stage {
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  min-height: 0;
+  background: #000;
+}
+
+.send-page .stage {
+  background: #f4f4f5;
+}
+
+.send-page .stage canvas {
+  width: 560px;
+  height: 560px;
+  max-width: min(560px, 92vw);
+  max-height: min(560px, 92vw);
+  image-rendering: pixelated;
+  box-shadow: 0 0 0 1px #d4d4d8;
+}
+
+.receive-stage {
+  position: relative;
+  padding: 0;
+  min-height: calc(100vh - 4rem);
+}
+
+.receive-stage video,
+.receive-stage canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.receive-stage video {
+  opacity: 0.35;
+}
+
+.progress {
+  position: absolute;
+  left: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: rgba(0, 0, 0, 0.7);
+  font-variant-numeric: tabular-nums;
+}
+
+.download {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  padding: 0.85rem 1.1rem;
+  border-radius: 0.75rem;
+  background: var(--accent);
+  color: #041018;
+  font-weight: 700;
+  z-index: 5;
+}
