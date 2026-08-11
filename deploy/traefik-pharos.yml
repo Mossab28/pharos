@@ -1,0 +1,30 @@
+http:
+  routers:
+    pharos-sslip-web:
+      rule: Host(`pharos.51-91-121-153.sslip.io`)
+      service: pharos-service
+      middlewares: [redirect-to-https]
+      entryPoints: [web]
+    pharos-sslip-secure:
+      rule: Host(`pharos.51-91-121-153.sslip.io`)
+      service: pharos-service
+      entryPoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+    pharos-fund-web:
+      rule: Host(`pharos.fundordie.fund`)
+      service: pharos-service
+      middlewares: [redirect-to-https]
+      entryPoints: [web]
+    pharos-fund-secure:
+      rule: Host(`pharos.fundordie.fund`)
+      service: pharos-service
+      entryPoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+  services:
+    pharos-service:
+      loadBalancer:
+        servers:
+          - url: http://pharos:80
+        passHostHeader: true

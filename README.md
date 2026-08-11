@@ -13,6 +13,11 @@ Même empreinte. RGB quantifié **4 bits/canal** (12 bits/cellule), grille 280×
 | Fast | 280×280 | 12 | 10 | ~55 / ~110 Mbit/s |
 | Robust | 140×140 | 6 | 2 | plus tolérant |
 
+## Live
+
+- https://pharos.fundordie.fund
+- https://pharos.51-91-121-153.sslip.io
+
 ## Essayer
 
 ```bash
