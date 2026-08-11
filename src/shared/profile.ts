@@ -4,9 +4,10 @@ export type Profile = {
   id: ProfileId;
   label: string;
   grid: number;
-  /** Bits per RGB channel. Total bits/cell = 3 × channelBits. */
-  channelBits: 2 | 3 | 4;
-  /** Target send rate (Hz). On a 120 Hz display, Fast aims for full refresh. */
+  /** If true, cells are black/white only (most camera-proof). */
+  mono: boolean;
+  /** Used when mono=false. Bits per RGB channel. */
+  channelBits: 1 | 2 | 3 | 4;
   fps: number;
   blockSize: number;
   packetsPerFrame: number;
@@ -18,34 +19,36 @@ export type Profile = {
 export const DISPLAY_CSS_PX = 560;
 
 export function bitsPerCell(p: Profile): number {
-  return p.channelBits * 3;
+  return p.mono ? 1 : p.channelBits * 3;
 }
 
 /**
- * Same 560px square. Readable cells + high temporal rate.
- * Fast targets 120 Hz display; phone camera at 60 fps still catches every other frame.
+ * Default path is mono modules: a phone can actually read them.
+ * Colored corners stay for lock; data is black/white.
  */
 export const PROFILES: Record<ProfileId, Profile> = {
   fast: {
     id: "fast",
     label: "Fast",
-    grid: 88,
-    channelBits: 2,
-    fps: 120,
+    grid: 96,
+    mono: true,
+    channelBits: 1,
+    fps: 30,
     blockSize: 0,
-    packetsPerFrame: 4,
-    finder: 9,
-    quiet: 2,
+    packetsPerFrame: 1,
+    finder: 10,
+    quiet: 3,
   },
   robust: {
     id: "robust",
     label: "Robust",
-    grid: 64,
-    channelBits: 2,
-    fps: 60,
+    grid: 72,
+    mono: true,
+    channelBits: 1,
+    fps: 15,
     blockSize: 0,
-    packetsPerFrame: 2,
-    finder: 9,
+    packetsPerFrame: 1,
+    finder: 10,
     quiet: 3,
   },
 };

@@ -200,7 +200,7 @@ async function processFrame(): Promise<void> {
 
     const bandCount = profile.packetsPerFrame;
     const bandBytes = sampleBands(image, profile, corners, bandCount);
-    const { header, packets } = unpackBands(bandBytes);
+    const { header, packets, okBands, headerOk } = unpackBands(bandBytes);
 
     if (header && streamId !== header.streamId) {
       streamId = header.streamId;
@@ -213,7 +213,14 @@ async function processFrame(): Promise<void> {
     }
 
     if (!decoder) {
-      setProgress(14, "Cadre verrouillé", "Lecture de l'en-tête…", "lock");
+      setProgress(
+        headerOk ? 20 : 12,
+        "Cadre verrouillé",
+        headerOk
+          ? `En-tête ok · paquets ${okBands}/${bandCount}`
+          : `Image floue ou mal cadré · paquets ${okBands}/${bandCount}`,
+        "lock",
+      );
       return;
     }
 
@@ -238,7 +245,12 @@ async function processFrame(): Promise<void> {
         "recv",
       );
     } else {
-      setProgress(16, "Cadre verrouillé", "En attente des premières données…", "lock");
+      setProgress(
+        18,
+        "Cadre verrouillé",
+        okBands > 0 ? `Données en cours · ${okBands}/${bandCount}` : `Toujours 0 paquet valide · tiens plus stable`,
+        "lock",
+      );
     }
 
     if (decoder.done) await finish();

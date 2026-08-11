@@ -56,21 +56,33 @@ export function packBands(
 export function unpackBands(bandBytes: Uint8Array[]): {
   header: FountainHeader | null;
   packets: BandPacket[];
+  /** How many bands produced a valid CRC'd slot (or header+slot for band0). */
+  okBands: number;
+  headerOk: boolean;
 } {
   const packets: BandPacket[] = [];
   let header: FountainHeader | null = null;
+  let okBands = 0;
+  let headerOk = false;
   for (let i = 0; i < bandBytes.length; i++) {
     const raw = bandBytes[i]!;
     if (i === 0) {
       header = unpackMeta(raw);
+      headerOk = !!header;
       if (!header) continue;
       const headerLen = 28 + header.nameBytes.length;
       const slot = unpackSlot(raw.subarray(headerLen));
-      if (slot) packets.push(slot);
+      if (slot) {
+        packets.push(slot);
+        okBands++;
+      }
     } else {
       const slot = unpackSlot(raw);
-      if (slot) packets.push(slot);
+      if (slot) {
+        packets.push(slot);
+        okBands++;
+      }
     }
   }
-  return { header, packets };
+  return { header, packets, okBands, headerOk };
 }

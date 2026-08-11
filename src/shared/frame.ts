@@ -133,7 +133,13 @@ export function renderBands(
     let idx = 0;
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < profile.grid; col++) {
-        const [r, g, b] = unpackRgb(cells[idx]!, profile.channelBits);
+        let r: number, g: number, b: number;
+        if (profile.mono) {
+          const on = cells[idx]! & 1;
+          r = g = b = on ? 255 : 0;
+        } else {
+          [r, g, b] = unpackRgb(cells[idx]!, profile.channelBits);
+        }
         const x0 = origin + col * pixelPerCell;
         const y0 = origin + (row0 + row) * pixelPerCell;
         fillRect(img.data, px, x0, y0, pixelPerCell, pixelPerCell, r, g, b);
@@ -195,7 +201,12 @@ export function sampleBands(
             n += wgt;
           }
         }
-        cells[idx++] = sampleToCell(r / n, g / n, b / n, profile.channelBits);
+        if (profile.mono) {
+          const lum = (0.299 * r + 0.587 * g + 0.114 * b) / n;
+          cells[idx++] = lum >= 128 ? 1 : 0;
+        } else {
+          cells[idx++] = sampleToCell(r / n, g / n, b / n, profile.channelBits);
+        }
       }
     }
     const byteLen = Math.floor((cellCount * bpc) / 8);

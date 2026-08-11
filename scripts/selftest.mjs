@@ -3,7 +3,6 @@ import { crc32 } from "../src/shared/crc32.ts";
 import { encodePacket, FountainDecoder, packMeta, splitBlocks } from "../src/shared/fountain.ts";
 import { bytesToCells, cellsToBytes } from "../src/shared/frame.ts";
 import { bitsPerCell, PROFILES, resolveLayout } from "../src/shared/profile.ts";
-import { packRgb } from "../src/shared/colors.ts";
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -20,24 +19,27 @@ while (!dec.done && esi < blocks.length * 4) {
 assert(dec.done, "fountain failed");
 assert(unpackSlot(packSlot(3, new Uint8Array([1, 2, 3])))?.esi === 3, "slot");
 
-const cells = new Uint16Array([packRgb(0, 1, 2, 2), packRgb(3, 2, 1, 2)]);
-const raw = cellsToBytes(cells, 6, 2);
-assert(bytesToCells(raw, 6, 2)[0] === cells[0], "bit pack");
-
 const profile = PROFILES.fast;
-assert(profile.fps === 120, "fast targets 120 Hz");
-assert(bitsPerCell(profile) === 6, "6 bits/cell");
+assert(profile.mono === true, "mono default");
+assert(bitsPerCell(profile) === 1, "1 bit/cell");
+assert(profile.packetsPerFrame === 1, "single band");
+
+const cells = new Uint16Array([1, 0, 1, 1, 0, 0, 1, 0]);
+const raw = cellsToBytes(cells, 1, 1);
+assert(bytesToCells(raw, 1, 8)[0] === 1, "mono bit");
+
+const nameBytes = new TextEncoder().encode("a.bin");
 const headerLen = packMeta({
   streamId: 1,
   blockCount: 2,
   blockSize: 100,
   fileSize: 10,
   fileCrc: 1,
-  nameBytes: new TextEncoder().encode("a.bin"),
+  nameBytes,
 }).length;
 const layout = resolveLayout(profile, headerLen);
-assert(layout.bandCount === 4, "4 bands");
-assert(layout.blockSize >= 64, "block size");
+assert(layout.bandCount === 1, "1 band");
+assert(layout.blockSize >= 64, "block");
 
 const header = {
   streamId: 9,
@@ -45,19 +47,17 @@ const header = {
   blockSize: layout.blockSize,
   fileSize: 10,
   fileCrc: 0,
-  nameBytes: new TextEncoder().encode("a.bin"),
+  nameBytes,
 };
-const packets = Array.from({ length: layout.bandCount }, (_, i) => ({
-  esi: i,
-  data: new Uint8Array(layout.blockSize).fill(i + 1),
-}));
+const packets = [{ esi: 0, data: new Uint8Array(layout.blockSize).fill(7) }];
 const decoded = unpackBands(packBands(profile, header, packets));
-assert(decoded.header?.streamId === 9, "header");
-assert(decoded.packets.length === layout.bandCount, "packets");
+assert(decoded.headerOk && decoded.header?.streamId === 9, "header");
+assert(decoded.okBands === 1 && decoded.packets.length === 1, "packet");
 
 console.log("selftest ok", {
   grid: profile.grid,
   fps: profile.fps,
+  mono: profile.mono,
   useful: layout.useful,
-  mbpsAtSendFps: Number(((layout.useful * 8 * profile.fps) / 1e6).toFixed(2)),
+  mbps: Number(((layout.useful * 8 * profile.fps) / 1e6).toFixed(2)),
 });
