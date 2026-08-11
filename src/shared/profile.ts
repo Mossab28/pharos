@@ -6,7 +6,7 @@ export type Profile = {
   grid: number;
   /** Bits per RGB channel. Total bits/cell = 3 × channelBits. */
   channelBits: 2 | 3 | 4;
-  /** Real send rate. Must stay under typical phone camera fps. */
+  /** Target send rate (Hz). On a 120 Hz display, Fast aims for full refresh. */
   fps: number;
   blockSize: number;
   packetsPerFrame: number;
@@ -22,8 +22,8 @@ export function bitsPerCell(p: Profile): number {
 }
 
 /**
- * Profiles tuned so a phone camera (~24–30 fps) can actually lock.
- * Same 560px square. Density was the bug, not the footprint.
+ * Same 560px square. Readable cells + high temporal rate.
+ * Fast targets 120 Hz display; phone camera at 60 fps still catches every other frame.
  */
 export const PROFILES: Record<ProfileId, Profile> = {
   fast: {
@@ -31,7 +31,7 @@ export const PROFILES: Record<ProfileId, Profile> = {
     label: "Fast",
     grid: 96,
     channelBits: 2,
-    fps: 15,
+    fps: 120,
     blockSize: 0,
     packetsPerFrame: 4,
     finder: 7,
@@ -42,7 +42,7 @@ export const PROFILES: Record<ProfileId, Profile> = {
     label: "Robust",
     grid: 72,
     channelBits: 2,
-    fps: 10,
+    fps: 60,
     blockSize: 0,
     packetsPerFrame: 2,
     finder: 7,

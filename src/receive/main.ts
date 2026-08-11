@@ -71,27 +71,48 @@ function setProgress(pct: number, label: string, meta: string): void {
 }
 
 async function startCamera(): Promise<void> {
+  // Prefer 60 fps (120 when the device exposes it). Never cap at 30.
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
     video: {
       facingMode: { ideal: "environment" },
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
-      frameRate: { ideal: 30, max: 30 },
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+      frameRate: { ideal: 60, min: 30 },
     },
-  });
+  }).catch(async () =>
+    navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: { ideal: "environment" },
+        frameRate: { ideal: 60 },
+      },
+    }),
+  );
+
+  // Try bumping to 120 if the track allows it.
+  const track = stream.getVideoTracks()[0];
+  if (track) {
+    try {
+      await track.applyConstraints({ frameRate: { ideal: 120, min: 60 } });
+    } catch {
+      try {
+        await track.applyConstraints({ frameRate: { ideal: 60 } });
+      } catch {
+        /* keep whatever we got */
+      }
+    }
+  }
+
   video.srcObject = stream;
   await video.play();
   running = true;
   t0 = performance.now();
-  statusEl.textContent = "Pointe le carré d'envoi";
   setProgress(0, "Recherche du cadre", "Vise le carré jusqu'à le verrouiller");
 
-  const track = stream.getVideoTracks()[0];
   const settings = track?.getSettings();
-  if (settings?.frameRate) {
-    statusEl.textContent = `Caméra ~${Math.round(settings.frameRate)} fps`;
-  }
+  const camFps = settings?.frameRate ? Math.round(settings.frameRate) : "?";
+  statusEl.textContent = `Caméra ${camFps} fps · pointe le carré`;
 
   const onFrame = () => {
     if (!running) return;

@@ -25,7 +25,7 @@ const raw = cellsToBytes(cells, 6, 2);
 assert(bytesToCells(raw, 6, 2)[0] === cells[0], "bit pack");
 
 const profile = PROFILES.fast;
-assert(profile.fps <= 20, "send fps must be phone-friendly");
+assert(profile.fps === 120, "fast targets 120 Hz");
 assert(bitsPerCell(profile) === 6, "6 bits/cell");
 const headerLen = packMeta({
   streamId: 1,
